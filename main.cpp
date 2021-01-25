@@ -21,16 +21,10 @@ int get_tid()
 void *producer_routine(void *args)
 {
     auto producer = (Producer *)args;
-    
-    pthread_mutex_lock(producer->threadsCountMutexPtr);
-    (*producer->threadsCountPtr)++;
-    pthread_mutex_unlock(producer->threadsCountMutexPtr);
-    
-    pthread_mutex_lock(producer->canWorkMutexPtr);
-    while (!*producer->canWorkPtr)
-        pthread_cond_wait(producer->canWorkCondPtr, producer->canWorkMutexPtr);
-    pthread_mutex_unlock(producer->canWorkMutexPtr);
 
+    pthread_barrier_wait(producer->startBarrierPtr);
+    pthread_barrier_wait(producer->canWorkBarrierPtr);
+    
     std::string tmp;
     std::getline(std::cin, tmp);
     auto input = tmp.c_str();
@@ -46,7 +40,6 @@ void *producer_routine(void *args)
         pthread_mutex_lock(producer->consumedMutexPtr);
         while (!*producer->consumedPtr)
             pthread_cond_wait(producer->consumedCondPtr, producer->consumedMutexPtr);
-        pthread_mutex_unlock(producer->consumedMutexPtr);
 
         (*producer->sharedVariablePtr) = now;
         (*producer->consumedPtr) = false;
@@ -62,15 +55,9 @@ void *consumer_routine(void *args)
     auto consumer = (Consumer *)args;
     pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, nullptr);
 
-    pthread_mutex_lock(consumer->threadsCountMutexPtr);
-    ++(*consumer->threadsCountPtr);
-    pthread_mutex_unlock(consumer->threadsCountMutexPtr);
+    pthread_barrier_wait(consumer->startBarrierPtr);
+    pthread_barrier_wait(consumer->canWorkBarrierPtr);
     
-    pthread_mutex_lock(consumer->canWorkMutexPtr);
-    while (!*consumer->canWorkPtr)
-        pthread_cond_wait(consumer->canWorkCondPtr, consumer->canWorkMutexPtr);
-    pthread_mutex_unlock(consumer->canWorkMutexPtr);
-
     long sum = 0;
     auto shouldBreak = false;
     while(true)
@@ -85,6 +72,7 @@ void *consumer_routine(void *args)
             if (*consumer->canWorkPtr == false)
             {
                 pthread_mutex_unlock(consumer->canWorkMutexPtr);
+                shouldBreak = true;
                 break;
             }
             pthread_mutex_unlock(consumer->canWorkMutexPtr);
@@ -122,15 +110,9 @@ void *consumer_interruptor_routine(void *args)
     auto interruptor = (Interruptor *)args;
     get_tid();
 
-    pthread_mutex_lock(interruptor->threadsCountMutexPtr);
-    ++(*interruptor->threadsCountPtr);
-    pthread_mutex_unlock(interruptor->threadsCountMutexPtr);
+    pthread_barrier_wait(interruptor->startBarrierPtr);
+    pthread_barrier_wait(interruptor->canWorkBarrierPtr);
     
-    pthread_mutex_lock(interruptor->canWorkMutexPtr);
-    while (!*interruptor->canWorkPtr)
-        pthread_cond_wait(interruptor->canWorkCondPtr, interruptor->canWorkMutexPtr);
-    pthread_mutex_unlock(interruptor->canWorkMutexPtr);
-
     while (true)
     {
         pthread_cancel(interruptor->threads[std::rand() % interruptor->threadsCount]);
@@ -146,14 +128,6 @@ void *consumer_interruptor_routine(void *args)
     }
 }
 
-void start_threads(Thread *params)
-{
-    pthread_mutex_lock(params->canWorkMutexPtr);
-    *(params->canWorkPtr) = true;
-    pthread_mutex_unlock(params->canWorkMutexPtr);
-    pthread_cond_broadcast(params->canWorkCondPtr);
-}
-
 int run_threads(int count, long sleepMs, bool isDebugEnabled)
 {
     pthread_t producer;
@@ -161,22 +135,21 @@ int run_threads(int count, long sleepMs, bool isDebugEnabled)
     pthread_t interruptor;
     auto consumers = new pthread_t[count];
     auto sharedVar = 0L;
-    const int timeout = 300;
     auto consumed = true;
     pthread_cond_t consumedCondPtr;
     pthread_mutex_t consumedMutexPtr;
     Producer producerParams(
-        timeout,
+        1,
         &sharedVar,
         &consumed,
         &consumedCondPtr,
         &consumedMutexPtr);
     Interruptor interruptorParams(
-        timeout,
+        1,
         count,
         consumers);
     Consumer consumersParams(
-        timeout,
+        count,
         sleepMs,
         isDebugEnabled,
         &sharedVar,
@@ -194,42 +167,13 @@ int run_threads(int count, long sleepMs, bool isDebugEnabled)
         pthread_create(&consumers[i], NULL, consumer_routine, (void *)&consumersParams);
     }
 
-    for (;;)
-    {
-        pthread_mutex_lock(consumersParams.threadsCountMutexPtr);
-        auto started = *consumersParams.threadsCountPtr;
-        pthread_mutex_unlock(consumersParams.threadsCountMutexPtr);
-        if (started == count)
-        {
-            break;
-        }
-    }
+    pthread_barrier_wait(interruptorParams.startBarrierPtr);
+    pthread_barrier_wait(producerParams.startBarrierPtr);
+    pthread_barrier_wait(consumersParams.startBarrierPtr);
 
-    for (;;)
-    {
-        pthread_mutex_lock(producerParams.threadsCountMutexPtr);
-        auto started = *producerParams.threadsCountPtr;
-        pthread_mutex_unlock(producerParams.threadsCountMutexPtr);
-        if (started == 1)
-        {
-            break;
-        }
-    }
-
-    for (;;)
-    {
-        pthread_mutex_lock(interruptorParams.threadsCountMutexPtr);
-        auto started = *interruptorParams.threadsCountPtr;
-        pthread_mutex_unlock(interruptorParams.threadsCountMutexPtr);
-        if (started == 1)
-        {
-            break;
-        }
-    }
-
-    start_threads(&interruptorParams);
-    start_threads(&producerParams);
-    start_threads(&consumersParams);
+    pthread_barrier_wait(interruptorParams.canWorkBarrierPtr);
+    pthread_barrier_wait(producerParams.canWorkBarrierPtr);
+    pthread_barrier_wait(consumersParams.canWorkBarrierPtr);
 
     pthread_join(producer, NULL);
 
@@ -246,7 +190,6 @@ int run_threads(int count, long sleepMs, bool isDebugEnabled)
     pthread_mutex_lock(consumersParams.consumedMutexPtr);
     while(!consumersParams.consumed)
         pthread_cond_wait(consumersParams.consumedCondPtr, consumersParams.consumedMutexPtr);
-    pthread_mutex_unlock(consumersParams.consumedMutexPtr);
 
     pthread_cond_broadcast(consumersParams.consumedCondPtr);
     pthread_mutex_unlock(consumersParams.consumedMutexPtr);

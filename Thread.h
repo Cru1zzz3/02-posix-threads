@@ -3,32 +3,29 @@
 class Thread
 {
 public:
-    int mutexLockTimeout;
-    pthread_mutex_t *threadsCountMutexPtr;
-    int *threadsCountPtr;
+    pthread_barrier_t *startBarrierPtr;
     bool *canWorkPtr;
-    pthread_cond_t *canWorkCondPtr;
+    pthread_barrier_t *canWorkBarrierPtr;
     pthread_mutex_t *canWorkMutexPtr;
 
 protected:
-    Thread(const int mutexLockTimeout) : mutexLockTimeout(mutexLockTimeout)
+    Thread(int count)
     {
-        canWorkPtr = new bool(false);
-        canWorkCondPtr = new pthread_cond_t();
+        canWorkPtr = new bool(true);
+        canWorkBarrierPtr = new pthread_barrier_t();
         canWorkMutexPtr = new pthread_mutex_t();
-        threadsCountMutexPtr = new pthread_mutex_t();
-        threadsCountPtr = new int(0);
+        startBarrierPtr = new pthread_barrier_t();
 
-        pthread_cond_init(canWorkCondPtr, NULL);
+        pthread_barrier_init(canWorkBarrierPtr, NULL, count + 1);
         pthread_mutex_init(canWorkMutexPtr, NULL);
-        pthread_mutex_init(threadsCountMutexPtr, NULL);
+        pthread_barrier_init(startBarrierPtr, NULL, count + 1);
     }
 
     ~Thread()
     {
-        delete threadsCountMutexPtr;
+        delete startBarrierPtr;
         delete canWorkMutexPtr;
-        delete canWorkCondPtr;
+        delete canWorkBarrierPtr;
         delete canWorkPtr;
     }
 };
@@ -44,14 +41,14 @@ public:
     pthread_mutex_t *consumedMutexPtr;
 
     Consumer(
-        const int mutexLockTimeout,
-        long sleepMilliseconds,
+        int count,
+        long sleep,
         bool isDebugEnabled,
         const long *sharedVariablePtr,
         bool *consumed,
         pthread_cond_t *consumedCondPtr,
-        pthread_mutex_t *consumedMutexPtr) : Thread(mutexLockTimeout),
-                                             sleep(sleepMilliseconds),
+        pthread_mutex_t *consumedMutexPtr) : Thread(count),
+                                             sleep(sleep),
                                              isDebugEnabled(isDebugEnabled),
                                              variablePtr(sharedVariablePtr),
                                              consumed(consumed),
@@ -71,11 +68,11 @@ public:
     pthread_mutex_t *consumedMutexPtr;
 
     Producer(
-        const int mutexLockTimeout,
+        int count,
         long *sharedVariablePtr,
         bool *consumedPtr,
         pthread_cond_t *consumedCondPtr,
-        pthread_mutex_t *consumedMutexPtr) : Thread(mutexLockTimeout),
+        pthread_mutex_t *consumedMutexPtr) : Thread(count),
                                              sharedVariablePtr(sharedVariablePtr),
                                              consumedPtr(consumedPtr),
                                              consumedCondPtr(consumedCondPtr),
@@ -91,9 +88,9 @@ public:
     const pthread_t *threads;
 
     Interruptor(
-        const int mutexLockTimeout,
+        int count,
         size_t threadsCount,
-        const pthread_t *threads) : Thread(mutexLockTimeout),
+        const pthread_t *threads) : Thread(count),
                                     threadsCount(threadsCount),
                                     threads(threads)
     {

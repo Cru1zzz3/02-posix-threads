@@ -22,6 +22,10 @@ void *producer_routine(void *args)
 {
     auto producer = (Producer *)args;
     
+    pthread_mutex_lock(producer->threadsCountMutexPtr);
+    (*producer->threadsCountPtr)++;
+    pthread_mutex_unlock(producer->threadsCountMutexPtr);
+    
     pthread_mutex_lock(producer->canWorkMutexPtr);
     while (!*producer->canWorkPtr)
         pthread_cond_wait(producer->canWorkCondPtr, producer->canWorkMutexPtr);
@@ -58,9 +62,9 @@ void *consumer_routine(void *args)
     auto consumer = (Consumer *)args;
     pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, nullptr);
 
-    pthread_mutex_lock(consumer->threadsStartedMutexPtr);
-    ++(*consumer->threadsStartedPtr);
-    pthread_mutex_unlock(consumer->threadsStartedMutexPtr);
+    pthread_mutex_lock(consumer->threadsCountMutexPtr);
+    ++(*consumer->threadsCountPtr);
+    pthread_mutex_unlock(consumer->threadsCountMutexPtr);
     
     pthread_mutex_lock(consumer->canWorkMutexPtr);
     while (!*consumer->canWorkPtr)
@@ -117,6 +121,10 @@ void *consumer_interruptor_routine(void *args)
 {
     auto interruptor = (Interruptor *)args;
     get_tid();
+
+    pthread_mutex_lock(interruptor->threadsCountMutexPtr);
+    ++(*interruptor->threadsCountPtr);
+    pthread_mutex_unlock(interruptor->threadsCountMutexPtr);
     
     pthread_mutex_lock(interruptor->canWorkMutexPtr);
     while (!*interruptor->canWorkPtr)
@@ -188,10 +196,32 @@ int run_threads(int count, long sleepMs, bool isDebugEnabled)
 
     for (;;)
     {
-        pthread_mutex_lock(consumersParams.threadsStartedMutexPtr);
-        auto started = *consumersParams.threadsStartedPtr;
-        pthread_mutex_unlock(consumersParams.threadsStartedMutexPtr);
+        pthread_mutex_lock(consumersParams.threadsCountMutexPtr);
+        auto started = *consumersParams.threadsCountPtr;
+        pthread_mutex_unlock(consumersParams.threadsCountMutexPtr);
         if (started == count)
+        {
+            break;
+        }
+    }
+
+    for (;;)
+    {
+        pthread_mutex_lock(producerParams.threadsCountMutexPtr);
+        auto started = *producerParams.threadsCountPtr;
+        pthread_mutex_unlock(producerParams.threadsCountMutexPtr);
+        if (started == 1)
+        {
+            break;
+        }
+    }
+
+    for (;;)
+    {
+        pthread_mutex_lock(interruptorParams.threadsCountMutexPtr);
+        auto started = *interruptorParams.threadsCountPtr;
+        pthread_mutex_unlock(interruptorParams.threadsCountMutexPtr);
+        if (started == 1)
         {
             break;
         }

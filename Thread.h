@@ -4,6 +4,8 @@ class Thread
 {
 public:
     int mutexLockTimeout;
+    pthread_mutex_t *threadsCountMutexPtr;
+    int *threadsCountPtr;
     bool *canWorkPtr;
     pthread_cond_t *canWorkCondPtr;
     pthread_mutex_t *canWorkMutexPtr;
@@ -14,13 +16,17 @@ protected:
         canWorkPtr = new bool(false);
         canWorkCondPtr = new pthread_cond_t();
         canWorkMutexPtr = new pthread_mutex_t();
+        threadsCountMutexPtr = new pthread_mutex_t();
+        threadsCountPtr = new int(0);
 
         pthread_cond_init(canWorkCondPtr, NULL);
         pthread_mutex_init(canWorkMutexPtr, NULL);
+        pthread_mutex_init(threadsCountMutexPtr, NULL);
     }
 
     ~Thread()
     {
+        delete threadsCountMutexPtr;
         delete canWorkMutexPtr;
         delete canWorkCondPtr;
         delete canWorkPtr;
@@ -32,8 +38,6 @@ class Consumer : public Thread
 public:
     const long sleep;
     const bool isDebugEnabled;
-    pthread_mutex_t *threadsStartedMutexPtr;
-    int *threadsStartedPtr;
     const long *variablePtr;
     bool *consumed;
     pthread_cond_t *consumedCondPtr;
@@ -55,16 +59,6 @@ public:
                                              consumedMutexPtr(consumedMutexPtr)
 
     {
-        threadsStartedMutexPtr = new pthread_mutex_t();
-        threadsStartedPtr = new int(0);
-
-        pthread_mutex_init(threadsStartedMutexPtr, NULL);
-    }
-
-    ~Consumer()
-    {
-        delete threadsStartedPtr;
-        delete threadsStartedMutexPtr;
     }
 };
 
